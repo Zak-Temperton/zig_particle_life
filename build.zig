@@ -10,22 +10,21 @@ pub fn build(b: *Builder) void {
         .target = target,
         .optimize = optimize,
     });
-    if (target.isNativeOs() and target.getOsTag() == .linux) {
-        // The SDL package doesn't work for Linux yet, so we rely on system
-        // packages for now.
-        exe.linkSystemLibrary("SDL2");
-        exe.linkLibC();
-    } else {
-        const sdl_dep = b.dependency("sdl", .{
-            .optimize = .ReleaseFast,
-            .target = target,
-        });
-        exe.linkLibrary(sdl_dep.artifact("SDL2"));
-    }
+    const glfw_dep = b.dependency("mach_glfw", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    exe.addModule("mach-glfw", glfw_dep.module("mach-glfw"));
+    @import("mach_glfw").link(glfw_dep.builder, exe);
+
     exe.addModule("gl", b.createModule(.{
         .source_file = .{ .path = "lib/gl4v6.zig" },
     }));
 
+    exe.addModule("zmath", b.createModule(.{
+        .source_file = .{ .path = "lib/zmath.zig" },
+    }));
     b.installArtifact(exe);
 
     const run = b.step("run", "Run the demo");

@@ -1,117 +1,97 @@
-const c = @cImport({
-    @cInclude("SDL2/SDL.h");
-});
 const std = @import("std");
+const glfw = @import("mach-glfw");
 const gl = @import("gl");
+const zm = @import("zmath");
 
-const width: usize = 900;
-const height: usize = 900;
+const Shader = @import("Shader.zig");
+const Camera = @import("Camera.zig");
 
-fn glGetProcAddress(comptime _: type, proc: [:0]const u8) ?gl.FunctionPointer {
-    return c.SDL_GL_GetProcAddress(proc);
+fn glGetProcAddress(_: glfw.GLProc, proc: [:0]const u8) ?gl.FunctionPointer {
+    return glfw.getProcAddress(proc);
+}
+/// Default GLFW error handling callback
+fn errorCallback(error_code: glfw.ErrorCode, description: [:0]const u8) void {
+    std.log.err("glfw: {}: {s}\n", .{ error_code, description });
 }
 
 pub fn main() !void {
-    if (c.SDL_Init(c.SDL_INIT_VIDEO) != 0) {
-        c.SDL_Log("Unable to initialize SDL: %s", c.SDL_GetError());
-        return error.SDLInitializationFailed;
+    glfw.setErrorCallback(errorCallback);
+    if (!glfw.init(.{})) {
+        std.log.err("failed to initialize GLFW: {?s}", .{glfw.getErrorString()});
+        std.process.exit(1);
     }
-    defer c.SDL_Quit();
+    defer glfw.terminate();
 
-    const screen = c.SDL_CreateWindow(
-        "My Game Window",
-        c.SDL_WINDOWPOS_UNDEFINED,
-        c.SDL_WINDOWPOS_UNDEFINED,
-        @as(c_int, width),
-        @as(c_int, height),
-        c.SDL_WINDOW_OPENGL,
-    ) orelse {
-        c.SDL_Log("Unable to create window: %s", c.SDL_GetError());
-        return error.SDLInitializationFailed;
+    // Create our window
+    const window = glfw.Window.create(640 * 2, 480 * 2, "mach-glfw + zig-opengl", null, null, .{
+        .opengl_profile = .opengl_core_profile,
+        .context_version_major = 4,
+        .context_version_minor = 6,
+    }) orelse {
+        std.log.err("failed to create GLFW window: {?s}", .{glfw.getErrorString()});
+        std.process.exit(1);
     };
-    defer c.SDL_DestroyWindow(screen);
+    defer window.destroy();
 
-    const context = c.SDL_GL_CreateContext(screen);
-    defer c.SDL_GL_DeleteContext(context);
+    glfw.makeContextCurrent(window);
+    glfw.Window.setFramebufferSizeCallback(window, framebufferSizeCallback);
 
-    try gl.load(void, glGetProcAddress);
+    const proc: glfw.GLProc = undefined;
+    try gl.load(proc, glGetProcAddress);
 
     const num_sides: u32 = 16;
     const circle_vertex_array = genCircleVertexArray(num_sides, 0.1);
     const circle_index_array = genCircleIndexBuffer(num_sides);
 
-    const vertex_shader = gl.createShader(gl.VERTEX_SHADER);
-    gl.shaderSource(vertex_shader, 1, &vertex_shader_t, null);
-    gl.compileShader(vertex_shader);
-    defer gl.deleteShader(vertex_shader);
+    const shader = Shader.init(vertex_shader_t, fragment_shader_t);
+    defer shader.deinit();
 
-    const fragment_shader = gl.createShader(gl.FRAGMENT_SHADER);
-    gl.shaderSource(fragment_shader, 1, &fragment_shader_t, null);
-    gl.compileShader(fragment_shader);
-    defer gl.deleteShader(fragment_shader);
+    var VAO: u32 = undefined;
+    var VBO: u32 = undefined;
+    var EBO: u32 = undefined;
 
-    const shader_program = gl.createProgram();
-    gl.attachShader(shader_program, vertex_shader);
-    gl.attachShader(shader_program, fragment_shader);
-    gl.linkProgram(shader_program);
-    defer gl.deleteProgram(shader_program);
+    gl.genVertexArrays(1, &VAO);
+    defer gl.deleteVertexArrays(1, &VAO);
+    gl.genBuffers(1, &VBO);
+    defer gl.deleteBuffers(1, &VBO);
+    gl.genBuffers(1, &EBO);
+    defer gl.deleteBuffers(1, &EBO);
 
-    var vertex_arrays: u32 = undefined;
-    var vertex_buffers: u32 = undefined;
-    var element_buffers: u32 = undefined;
+    gl.bindVertexArray(VAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, VBO);
+    gl.bufferData(gl.ARRAY_BUFFER, @sizeOf(f32) * circle_vertex_array.len, &circle_vertex_array[0], gl.STATIC_DRAW);
 
-    gl.genVertexArrays(1, &vertex_arrays);
-    defer gl.deleteVertexArrays(1, &vertex_arrays);
-    gl.genBuffers(1, &vertex_buffers);
-    defer gl.deleteBuffers(1, &vertex_buffers);
-
-    gl.genBuffers(1, &element_buffers);
-    defer gl.deleteBuffers(1, &element_buffers);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffers);
-    gl.bufferData(gl.ARRAY_BUFFER, @sizeOf(Vertex) * circle_vertex_array.len, &circle_vertex_array[0], gl.STATIC_DRAW);
-    gl.vertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), null);
-    gl.enableVertexAttribArray(0);
-
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, element_buffers);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, EBO);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, @sizeOf(u32) * circle_index_array.len, &circle_index_array[0], gl.STATIC_DRAW);
 
-    var quit = false;
-    while (!quit) {
-        var event: c.SDL_Event = undefined;
-        while (c.SDL_PollEvent(&event) != 0) {
-            switch (event.type) {
-                c.SDL_QUIT => {
-                    quit = true;
-                },
-                else => {},
-            }
-        }
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 3 * @sizeOf(f32), null);
+    gl.enableVertexAttribArray(0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, 0);
+    gl.bindVertexArray(0);
+
+    while (!window.shouldClose()) {
         gl.clearColor(0, 0, 0, 1);
         gl.clear(gl.COLOR_BUFFER_BIT);
-        gl.useProgram(shader_program);
 
-        //gl.bindVertexArray(vertex_arrays);
-
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, element_buffers);
+        shader.use();
+        gl.bindVertexArray(VAO);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, EBO);
         gl.drawElements(gl.TRIANGLES, circle_index_array.len, gl.UNSIGNED_INT, null);
         gl.bindVertexArray(0);
-        c.SDL_GL_SwapWindow(screen);
+        window.swapBuffers();
+        glfw.pollEvents();
     }
 }
 
-const Vertex = struct { x: f32, y: f32, z: f32 };
-
-fn genCircleVertexArray(comptime num_sides: u32, comptime radius: f32) [num_sides]Vertex {
-    var vertices: [num_sides]Vertex = undefined;
+fn genCircleVertexArray(comptime num_sides: u32, comptime radius: f32) [num_sides * 3]f32 {
+    var vertices: [num_sides * 3]f32 = undefined;
     var theta: f32 = std.math.tau / @as(f32, @floatFromInt(num_sides));
     for (0..num_sides) |n| {
         var angle: f32 = theta * @as(f32, @floatFromInt(n));
-        vertices[n] = .{
-            .x = radius * @cos(angle),
-            .y = radius * @sin(angle),
-            .z = 1.0,
-        };
+        vertices[n * 3] = radius * @cos(angle);
+        vertices[n * 3 + 1] = radius * @sin(angle);
+        vertices[n * 3 + 2] = 1.0;
     }
     return vertices;
 }
@@ -126,19 +106,21 @@ fn genCircleIndexBuffer(comptime num_sides: u32) [num_sides * 3]u32 {
     return indices;
 }
 
-const vertex_shader_t: [*c]const u8 =
-    \\#version 330 core
-    \\out vec4 outCol;
+const vertex_shader_t =
+    \\#version 460 core
     \\void main() {
     \\  gl_Position = vec4(0.5,0.5,1.0,1.0);
-    \\  outCol = vec4(1.0,1.0,1.0, 1.0);
     \\}
 ;
-const fragment_shader_t: [*c]const u8 =
-    \\#version 330 core
-    \\out vec4 gl_FragColor
-    \\in vec4 outCol
+const fragment_shader_t =
+    \\#version 460 core
+    \\out vec4 FragColor;
     \\void main() {
-    \\  gl_FragColor = vec4(outCol,1.0);
+    \\  FragColor = vec4(1.0,1.0,1.0,1.0);
     \\}
 ;
+
+fn framebufferSizeCallback(window: glfw.Window, width: u32, height: u32) void {
+    _ = window;
+    gl.viewport(0, 0, @intCast(width), @intCast(height));
+}
