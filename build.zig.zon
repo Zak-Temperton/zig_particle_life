@@ -1,0 +1,17 @@
+.{
+    .name = "particle-life",
+    .version = "0.0.0",
+    .dependencies = .{
+        .sdl = .{
+            .url = "https://github.com/andrewrk/SDL/archive/3eb87f0f5b8d815d5a608b732e1d77f0876712d9.tar.gz",
+            .hash = "1220442ff114c3cc00800d2c23a576aafcda813f08b7baa64b2884ba7148f7857582",
+        },
+    },
+    .paths = .{
+        "LICENSE",
+        "README.md",
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
