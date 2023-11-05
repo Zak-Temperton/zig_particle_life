@@ -107,10 +107,12 @@ fn genCircleIndexBuffer(comptime num_sides: u32) [num_sides * 3]u32 {
 }
 
 const vertex_shader_t =
-    \\#version 460 core
-    \\void main() {
-    \\  gl_Position = vec4(0.5,0.5,1.0,1.0);
-    \\}
+    \\ #version 410 core
+    \\ layout (location = 0) in vec3 aPos;
+    \\ void main()
+    \\ {
+    \\   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);
+    \\ }
 ;
 const fragment_shader_t =
     \\#version 460 core
