@@ -55,19 +55,18 @@ pub fn main() !void {
     var b_renderer = BufferedRenderer.init(alloc, shader);
     defer b_renderer.deinit();
 
-    var universe = Universe(6).init(alloc, b_renderer);
-    try universe.seed(-0.02, 0.06, 0.0, 20.0, 20.0, 70.0, 0.05, false);
-    //try universe.seed(0.02, 0.05, 0.0, 20.0, 20.0, 50.0, 0.05, false);
-    try universe.addParticles(500, width, height);
+    var universe = Universe(6).init(alloc, b_renderer, width, height);
+    try universe.seed(-0.02, 0.06, 0.0, 20.0, 20.0, 50.0, 0.05, false);
+    try universe.addParticles(500);
 
     while (!window.shouldClose()) {
         try processInput(window, &universe);
         gl.clearColor(0, 0, 0, 0.2);
         gl.clear(gl.COLOR_BUFFER_BIT);
 
-        try universe.render(camera, width, height);
+        try universe.render(camera);
         for (0..20) |_|
-            try universe.step(@floatFromInt(width), @floatFromInt(height));
+            try universe.step();
 
         window.swapBuffers();
         glfw.pollEvents();
@@ -112,7 +111,6 @@ fn processInput(window: glfw.Window, universe: anytype) !void {
         space = false;
     }
     if (space and !space_last) {
-        try universe.seed(-0.02, 0.04, 10.0, 15.0, 25.0, 80.0, 0.05, false);
-        //try universe.seed(-0.02, 0.03, 0.0, 10.0, 20.0, 40.0, 0.2, false);
+        try universe.seed(-0.02, 0.06, 0.0, 20.0, 20.0, 50.0, 0.05, false);
     }
 }

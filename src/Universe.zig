@@ -14,6 +14,8 @@ pub fn Universe(comptime num_types: u8) type {
         const Self = @This();
         const Particles = ArrayList(Particle);
 
+        width: u32,
+        height: u32,
         seeded: bool,
         friction: f32 = 0,
         flat_force: bool = false,
@@ -21,8 +23,10 @@ pub fn Universe(comptime num_types: u8) type {
         particle_types: ParticleTypes,
         buffered_renderer: BufferedRenderer,
 
-        pub fn init(alloc: Allocator, buffered_renderer: BufferedRenderer) Self {
+        pub fn init(alloc: Allocator, buffered_renderer: BufferedRenderer, width: u32, height: u32) Self {
             return .{
+                .width = width,
+                .height = height,
                 .particles = Particles.init(alloc),
                 .particle_types = undefined,
                 .seeded = false,
@@ -30,12 +34,12 @@ pub fn Universe(comptime num_types: u8) type {
             };
         }
 
-        pub fn addParticles(self: *Self, num_particles: usize, width: u32, height: u32) !void {
+        pub fn addParticles(self: *Self, num_particles: usize) !void {
             var rand = std.rand.DefaultPrng.init((try std.time.Instant.now()).timestamp);
             for (0..num_particles) |_| {
                 try self.particles.append(.{
-                    .x = (rand.random().float(f32)) * @as(f32, @floatFromInt(width)),
-                    .y = (rand.random().float(f32)) * @as(f32, @floatFromInt(height)),
+                    .x = (rand.random().float(f32)) * @as(f32, @floatFromInt(self.width)),
+                    .y = (rand.random().float(f32)) * @as(f32, @floatFromInt(self.height)),
                     .vx = rand.random().floatNorm(f32) * 0.1,
                     .vy = rand.random().floatNorm(f32) * 0.1,
                     .type_id = rand.random().uintLessThan(u8, num_types),
@@ -80,7 +84,9 @@ pub fn Universe(comptime num_types: u8) type {
             self.seeded = true;
         }
 
-        pub fn step(self: *Self, width: f32, height: f32) !void {
+        pub fn step(self: *Self) !void {
+            const width: f32 = @floatFromInt(self.width);
+            const height: f32 = @floatFromInt(self.height);
             if (!self.seeded) return error.UnSeeded;
 
             for (self.particles.items, 0..) |*particle1, i| {
@@ -94,7 +100,7 @@ pub fn Universe(comptime num_types: u8) type {
             }
         }
 
-        pub fn render(self: *Self, camera: Camera, width: u32, height: u32) !void {
+        pub fn render(self: *Self, camera: Camera) !void {
             for (self.particles.items) |particle| {
                 try self.buffered_renderer.append(8, RenderableCircle(8).init_circle(
                     particle.x,
@@ -104,7 +110,7 @@ pub fn Universe(comptime num_types: u8) type {
                 ));
             }
             self.buffered_renderer.bind();
-            self.buffered_renderer.render(camera, width, height);
+            self.buffered_renderer.render(camera, self.width, self.height);
             self.buffered_renderer.clear();
         }
     };
