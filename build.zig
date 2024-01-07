@@ -1,5 +1,5 @@
 const Builder = @import("std").build.Builder;
-
+const zmath = @import("lib/zmath/build.zig");
 pub fn build(b: *Builder) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -14,7 +14,10 @@ pub fn build(b: *Builder) void {
         .target = target,
         .optimize = optimize,
     });
-
+    const zmath_pkg = zmath.package(b, target, optimize, .{
+        .options = .{ .enable_cross_platform_determinism = true },
+    });
+    zmath_pkg.link(exe);
     exe.addModule("mach-glfw", glfw_dep.module("mach-glfw"));
     @import("mach_glfw").link(glfw_dep.builder, exe);
 
@@ -22,9 +25,9 @@ pub fn build(b: *Builder) void {
         .source_file = .{ .path = "lib/gl4v6.zig" },
     }));
 
-    exe.addModule("zmath", b.createModule(.{
-        .source_file = .{ .path = "lib/zmath.zig" },
-    }));
+    //    exe.addModule("zmath", b.createModule(.{
+    //        .source_file = .{ .path = "lib/zmath.zig" },
+    //    }));
     b.installArtifact(exe);
 
     const run = b.step("run", "Run the demo");

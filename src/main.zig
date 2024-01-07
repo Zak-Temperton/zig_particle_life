@@ -3,8 +3,13 @@ const glfw = @import("mach-glfw");
 const gl = @import("gl");
 const zm = @import("zmath");
 
+const Universe = @import("Universe.zig").Universe;
 const Shader = @import("Shader.zig");
 const Camera = @import("Camera.zig");
+const BufferedRenderer = @import("BufferRenderer.zig");
+
+var width: u32 = 0;
+var height: u32 = 0;
 
 fn glGetProcAddress(_: glfw.GLProc, proc: [:0]const u8) ?gl.FunctionPointer {
     return glfw.getProcAddress(proc);
@@ -23,7 +28,7 @@ pub fn main() !void {
     defer glfw.terminate();
 
     // Create our window
-    const window = glfw.Window.create(640 * 2, 480 * 2, "mach-glfw + zig-opengl", null, null, .{
+    const window = glfw.Window.create(1600, 900, "mach-glfw + zig-opengl", null, null, .{
         .opengl_profile = .opengl_core_profile,
         .context_version_major = 4,
         .context_version_minor = 6,
@@ -35,94 +40,79 @@ pub fn main() !void {
 
     glfw.makeContextCurrent(window);
     glfw.Window.setFramebufferSizeCallback(window, framebufferSizeCallback);
+    width = window.getSize().width;
+    height = window.getSize().height;
 
     const proc: glfw.GLProc = undefined;
     try gl.load(proc, glGetProcAddress);
 
-    const num_sides: u32 = 16;
-    const circle_vertex_array = genCircleVertexArray(num_sides, 0.1);
-    const circle_index_array = genCircleIndexBuffer(num_sides);
-
     const shader = Shader.init(vertex_shader_t, fragment_shader_t);
     defer shader.deinit();
 
-    var VAO: u32 = undefined;
-    var VBO: u32 = undefined;
-    var EBO: u32 = undefined;
+    const alloc = std.heap.page_allocator;
 
-    gl.genVertexArrays(1, &VAO);
-    defer gl.deleteVertexArrays(1, &VAO);
-    gl.genBuffers(1, &VBO);
-    defer gl.deleteBuffers(1, &VBO);
-    gl.genBuffers(1, &EBO);
-    defer gl.deleteBuffers(1, &EBO);
+    const camera = Camera.init(.{ @floatFromInt(width / 2), @floatFromInt(height / 2) }, 1.0);
+    var b_renderer = BufferedRenderer.init(alloc, shader);
+    defer b_renderer.deinit();
 
-    gl.bindVertexArray(VAO);
-    gl.bindBuffer(gl.ARRAY_BUFFER, VBO);
-    gl.bufferData(gl.ARRAY_BUFFER, @sizeOf(f32) * circle_vertex_array.len, &circle_vertex_array[0], gl.STATIC_DRAW);
-
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, EBO);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, @sizeOf(u32) * circle_index_array.len, &circle_index_array[0], gl.STATIC_DRAW);
-
-    gl.vertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 3 * @sizeOf(f32), null);
-    gl.enableVertexAttribArray(0);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, 0);
-    gl.bindVertexArray(0);
+    var universe = Universe(6).init(alloc, b_renderer);
+    try universe.seed(-0.02, 0.06, 0.0, 20.0, 20.0, 70.0, 0.05, false);
+    //try universe.seed(0.02, 0.05, 0.0, 20.0, 20.0, 50.0, 0.05, false);
+    try universe.addParticles(500, width, height);
 
     while (!window.shouldClose()) {
-        gl.clearColor(0, 0, 0, 1);
+        try processInput(window, &universe);
+        gl.clearColor(0, 0, 0, 0.2);
         gl.clear(gl.COLOR_BUFFER_BIT);
 
-        shader.use();
-        gl.bindVertexArray(VAO);
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, EBO);
-        gl.drawElements(gl.TRIANGLES, circle_index_array.len, gl.UNSIGNED_INT, null);
-        gl.bindVertexArray(0);
+        try universe.render(camera, width, height);
+        for (0..20) |_|
+            try universe.step(@floatFromInt(width), @floatFromInt(height));
+
         window.swapBuffers();
         glfw.pollEvents();
     }
 }
 
-fn genCircleVertexArray(comptime num_sides: u32, comptime radius: f32) [num_sides * 3]f32 {
-    var vertices: [num_sides * 3]f32 = undefined;
-    var theta: f32 = std.math.tau / @as(f32, @floatFromInt(num_sides));
-    for (0..num_sides) |n| {
-        var angle: f32 = theta * @as(f32, @floatFromInt(n));
-        vertices[n * 3] = radius * @cos(angle);
-        vertices[n * 3 + 1] = radius * @sin(angle);
-        vertices[n * 3 + 2] = 1.0;
-    }
-    return vertices;
-}
-
-fn genCircleIndexBuffer(comptime num_sides: u32) [num_sides * 3]u32 {
-    var indices: [num_sides * 3]u32 = undefined;
-    for (0..num_sides) |n| {
-        indices[n * 3] = 0;
-        indices[n * 3 + 1] = @truncate(n + 1);
-        indices[n * 3 + 2] = @truncate(n + 2);
-    }
-    return indices;
-}
-
 const vertex_shader_t =
-    \\ #version 410 core
-    \\ layout (location = 0) in vec3 aPos;
-    \\ void main()
-    \\ {
-    \\   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);
-    \\ }
-;
-const fragment_shader_t =
-    \\#version 460 core
-    \\out vec4 FragColor;
-    \\void main() {
-    \\  FragColor = vec4(1.0,1.0,1.0,1.0);
+    \\#version 410 core
+    \\layout (location = 0) in vec2 aPos;
+    \\layout (location = 1) in vec3 aColor;
+    \\uniform mat4 proj;
+    \\out vec3 ourColor;
+    \\void main()
+    \\{
+    \\  gl_Position = proj * vec4(aPos.x, aPos.y, 1.0, 1.0);
+    \\  ourColor = aColor;
     \\}
 ;
 
-fn framebufferSizeCallback(window: glfw.Window, width: u32, height: u32) void {
+const fragment_shader_t =
+    \\#version 460 core
+    \\in vec3 ourColor;
+    \\out vec4 FragColor;
+    \\void main() {
+    \\  FragColor = vec4(ourColor, 1.0);
+    \\}
+;
+
+fn framebufferSizeCallback(window: glfw.Window, w: u32, h: u32) void {
     _ = window;
+    width = w;
+    height = h;
     gl.viewport(0, 0, @intCast(width), @intCast(height));
+}
+var space = false;
+var space_last = false;
+fn processInput(window: glfw.Window, universe: anytype) !void {
+    if (glfw.Window.getKey(window, glfw.Key.space) == glfw.Action.press) {
+        space_last = space;
+        space = true;
+    } else if (glfw.Window.getKey(window, glfw.Key.space) == glfw.Action.release) {
+        space = false;
+    }
+    if (space and !space_last) {
+        try universe.seed(-0.02, 0.04, 10.0, 15.0, 25.0, 80.0, 0.05, false);
+        //try universe.seed(-0.02, 0.03, 0.0, 10.0, 20.0, 40.0, 0.2, false);
+    }
 }
