@@ -28,5 +28,4 @@ pub fn getProjectionMatrix(self: Camera, width: u32, height: u32) zm.Mat {
 
     const ortho = zm.orthographicOffCenterRh(l, r, t, b, n, f);
     return zm.mul(ortho, zm.scaling(self.zoom, self.zoom, 1));
-    //return .{ self.zoom * 2 / (r - l), self.zoom * 2 / (t - b) };
 }
